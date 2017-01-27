@@ -1,27 +1,5 @@
-# In RPS two players are playing against each other, and each of them chooses
-# one possible move (rock, paper or scissors):
-# 1) Rock beats Scissors
-# 2) Scissors beat Paper
-# 3) Paper beats Rock
-#
-# If two players choose the same move then its a tie
-#
-# *Classes:*
-# Move Class Objects
-#   1) rock
-#   2) paper
-#   3) scissors
-#
-# Player Class Objects
-#   1) computer
-#   2) human
-#
-# *Methods:*
-#   1) compare
-#   2) choose
-
 class Player
-  MAX_SCORE = 3
+  MAX_SCORE = 5
 
   attr_accessor :move, :name, :score
 
@@ -61,12 +39,132 @@ class Human < Player
 end
 
 class Computer < Player
+  LEARNING_THRESHOLD = 0.2
+  ADJUSTMENT = 10
+
+  attr_accessor :behaviour
+
+  def initialize(behaviour = Rule.new)
+    super()
+    @behaviour = behaviour
+  end
+
   def set_name
     self.name = ['R2D2', 'Hal', 'Chappie', 'Sonny', 'Number 5'].sample
   end
 
   def choose
-    self.move = Move.new(Move::VALUES.sample)
+    @move = Move.new(deduct_move)
+  end
+
+  def deduct_move
+    rand_number = rand(0...100.0)
+    # puts "#Debugging: The random number is #{rand_number}"
+    # p @behaviour.percentages
+    # p @behaviour.cdf
+    @behaviour.cdf.find { |sub_arr| rand_number <= sub_arr.last }.first
+  end
+
+  def learn(history)
+    @win_stats = calc_stats(history.wins(self))
+    @lose_stats = calc_stats(history.losses(self))
+
+    # puts "The winnings are: #{@win_stats}"
+    # puts "The losses are: #{@lose_stats}"
+
+    adjust_behaviour(@win_stats)
+    adjust_behaviour(@lose_stats.sort, -1)
+  end
+
+  def adjust_behaviour(hash, multiplier = 1)
+    delta = ADJUSTMENT * multiplier
+    hash.each do |move, probability|
+      behaviour.change!(move, delta) if probability > LEARNING_THRESHOLD
+    end
+  end
+
+  private
+
+  def calc_stats(arr)
+    return reset_hash if arr.size.zero?
+
+    Move::VALUES.each_with_object({}) do |move, result|
+      move_count = arr.count { |hash| hash[:computer].value == move }
+      result[move] = (move_count.to_f / arr.size)
+    end
+  end
+
+  def reset_hash
+    Move::VALUES.each_with_object({}) { |move, result| result[move] = 0 }
+  end
+end
+
+class Rule
+  attr_reader :percentages, :cdf
+
+  def initialize
+    @base_increment = 100.0 / Move::VALUES.size
+    @percentages = reset_rule
+    @cdf = update_cdf
+  end
+
+  def reset_rule
+    Move::VALUES.each_with_object([]) do |option, arr|
+      arr << [option, @base_increment]
+    end
+  end
+
+  def change!(move, delta)
+    changed_item = @percentages.find { |sub_arr| sub_arr.first == move }
+    delta = adjust_delta(changed_item, delta)
+
+    changed_item[1] += delta
+    move_index = @percentages.index(changed_item)
+
+    percentages_without_move = @percentages.select { |arr| arr != changed_item }
+    compensated_items = compensate_percentages(percentages_without_move, delta)
+    @percentages = compensated_items.insert(move_index, changed_item)
+    @cdf = update_cdf
+  end
+
+  def compensate_percentages(arr, sum)
+    return arr if sum.zero?
+
+    needed_compensations = arr.count { |item| item.last != 0 }
+    compensation = -(sum.to_f / needed_compensations)
+    arr.map! do |item|
+      move = item.first
+      if item.last + compensation <= 0
+        sum -= item.last
+        [move, 0]
+      else
+        sum += compensation
+        [move, item.last + compensation]
+      end
+    end
+
+    compensate_percentages(arr, sum)
+  end
+
+  def update_cdf
+    sum = 0
+
+    @percentages.each_with_object([]) do |sub_arr, result|
+      result << [sub_arr.first, sub_arr.last + sum]
+      sum += sub_arr.last
+    end
+  end
+
+  private
+
+  def adjust_delta(changed_item, delta)
+    if changed_item.last + delta >= 100
+      100 - changed_item.last
+    elsif changed_item.last + delta <= 0
+      -changed_item.last
+    else
+      delta
+    end
   end
 end
 
@@ -102,21 +200,31 @@ class Move
 end
 
 class MoveHistory
-  attr_accessor :history
+  attr_accessor :records
 
   def initialize
-    @history = []
+    @records = []
+  end
+
+  def wins(computer)
+    @records.select { |hash| hash[:winner] == computer }
+  end
+
+  def losses(computer)
+    @records.select do |hash|
+      (hash[:winner] != computer) && (hash[:winner] != :Tie)
+    end
   end
 
   def log_round(winner, human_move, computer_move)
-    @history += [{ winner: winner, human: human_move, computer: computer_move }]
+    @records += [{ winner: winner, human: human_move, computer: computer_move }]
   end
 
-  def display
-    @history.each_with_index do |round, i|
+  def display(arr = @records)
+    arr.each_with_index do |round, i|
       puts "Round #{i + 1}: \tHuman Move: #{round[:human].value};\n\
-           \tComputer Move: #{round[:computer].value};\n\
-           \tWinner: #{round[:winner]}\n\n"
+             \tComputer Move: #{round[:computer].value};\n\
+             \tWinner: #{round[:winner]}\n\n"
     end
   end
 end
@@ -144,7 +252,8 @@ class RPSGame
       human.score = 0
       computer.score = 0
       system 'cls'
-      history.display
+      # history.display
+      computer.learn(history)
     end
 
     display_goodbye_message
@@ -166,7 +275,7 @@ class RPSGame
     elsif human.move < computer.move
       computer
     else
-      :tie
+      :Tie
     end
   end
 
@@ -179,7 +288,7 @@ class RPSGame
     case winner
     when human    then puts "#{human} won!"
     when computer then puts "#{computer} won!"
-    when :tie     then puts "It's a tie"
+    when :Tie     then puts "It's a tie"
     end
   end
 
