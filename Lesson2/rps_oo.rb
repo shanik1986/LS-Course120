@@ -206,13 +206,13 @@ class MoveHistory
     @records = []
   end
 
-  def wins(computer)
-    @records.select { |hash| hash[:winner] == computer }
+  def wins(player)
+    @records.select { |hash| hash[:winner] == player }
   end
 
-  def losses(computer)
+  def losses(player)
     @records.select do |hash|
-      (hash[:winner] != computer) && (hash[:winner] != :Tie)
+      (hash[:winner] != player) && (hash[:winner] != :tie)
     end
   end
 
@@ -275,7 +275,7 @@ class RPSGame
     elsif human.move < computer.move
       computer
     else
-      :Tie
+      :tie
     end
   end
 
@@ -288,7 +288,7 @@ class RPSGame
     case winner
     when human    then puts "#{human} won!"
     when computer then puts "#{computer} won!"
-    when :Tie     then puts "It's a tie"
+    when :tie     then puts "It's a tie"
     end
   end
 
