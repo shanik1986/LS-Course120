@@ -1,14 +1,14 @@
+require 'pry'
+
 class Array
   def joinor(delimeter = ', ', last_item_connection = 'or')
-    return self[0].to_s if size == 1
+    return self[0].to_s if size == 1 || size.zero?
 
     "#{self[0..-2].join(delimeter)} #{last_item_connection} #{self[-1]}"
   end
 end
 
 class Board
-  attr_reader :unmarked_squares, :winning_marker
-
   WINNING_LINES = [
     [1, 2, 3], [4, 5, 6], [7, 8, 9], # Rows
     [1, 4, 7], [2, 5, 8], [3, 6, 9], # Columns
@@ -42,8 +42,10 @@ class Board
 
   def reset
     (1..9).each { |key| @squares[key] = INITIAL_MARKER }
-    @unmarked_squares = @squares.keys
-    @winning_marker = nil
+  end
+
+  def unmarked_squares
+    @squares.select { |_, marker| marker == INITIAL_MARKER }.keys
   end
 
   def find_square(marker)
@@ -54,6 +56,8 @@ class Board
                         end
 
         return chosen_square.first unless chosen_square.nil?
+      else
+        next
       end
     end
     nil
@@ -70,7 +74,6 @@ class Board
 
   def []=(key, obj)
     @squares[key] = obj
-    unmarked_squares.delete(key)
   end
 
   def full?
@@ -78,21 +81,16 @@ class Board
   end
 
   def player_won?(player_marker)
-    @winning_marker = detect_winning_marker(player_marker)
-    !!@winning_marker
-  end
-
-  def detect_winning_marker(player_marker)
     WINNING_LINES.each do |line|
       chosen_squares = @squares.values_at(*line)
-      return player_marker if chosen_squares.count(player_marker) == 3
+      return true if chosen_squares.count(player_marker) == 3
     end
-    nil
+    false
   end
 end
 
 class Player
-  @@markers = ['X', 'O']
+  MARKERS = ['X', 'O'].freeze
 
   attr_reader :marker, :name
   attr_accessor :score, :opposing_marker
@@ -106,10 +104,7 @@ end
 class Human < Player
   def initialize
     @name = set_name
-
     marker = set_marker
-    @@markers.delete(marker)
-
     super(marker)
   end
 
@@ -123,12 +118,12 @@ class Human < Player
   private
 
   def set_marker
-    puts "Would you like to be #{@@markers.joinor}?"
+    puts "Would you like to be #{MARKERS.joinor}?"
     answer = nil
     loop do
       answer = gets.chomp.upcase
-      break if @@markers.include?(answer)
-      puts "This marker doesn't exists. Please choose #{@@markers.joinor}"
+      break if MARKERS.include?(answer)
+      puts "This marker doesn't exists. Please choose #{MARKERS.joinor}"
     end
     answer
   end
@@ -161,14 +156,13 @@ end
 class Computer < Player
   NAMES = ['R2D2', 'JJ', 'John', 'Lucy'].freeze
 
-  def initialize
+  def initialize(opposing_marker)
     @name = NAMES.sample
-    marker = @@markers.pop
+    marker = MARKERS.select { |item| item != opposing_marker }.first
     super(marker)
   end
 
   def pick_move(board)
-
     square = board.find_square(marker)          # Winning move
     return square unless !square
 
@@ -183,25 +177,23 @@ class Computer < Player
 end
 
 class TTTEngine
-  @@markers = ['X', 'O']
   MAX_SCORE = 3
 
   attr_reader :board
 
   def initialize
+    human = Human.new
     @board = Board.new
-    @players = { human: Human.new, computer: Computer.new }
+    @players = { human: human, computer: Computer.new(human.marker) }
     make_adversaries(@players[:human], @players[:computer])
 
     @current_player = random_player
-    @round_winner
   end
 
   def play_game
     display_welcome_message
     loop do
-      while @players[:human].score < MAX_SCORE &&
-            @players[:computer].score < MAX_SCORE
+      until winner_exists?
         clear_screen_and_display_board
         play_round
         reset_round
@@ -214,6 +206,11 @@ class TTTEngine
   end
 
   private
+
+  def winner_exists?
+    @players[:human].score >= MAX_SCORE ||
+      @players[:computer].score >= MAX_SCORE
+  end
 
   def make_adversaries(player1, player2)
     player1.opposing_marker = player2.marker
@@ -282,22 +279,21 @@ class TTTEngine
   end
 
   def conclude_round
-    @round_winner = determine_round_winner
-    @round_winner.score += 1 if !!@round_winner
+    round_winner.score += 1 if !!round_winner
 
     clear_screen_and_display_board
     display_result
   end
 
-  def determine_round_winner
+  def round_winner
     @players.each do |_, player|
-      return player if board.winning_marker == player.marker
+      return player if board.player_won?(player.marker)
     end
     nil
   end
 
   def display_result
-    puts !!@round_winner ? "#{@round_winner.name} won!" : "It's a tie!"
+    puts round_winner ? "#{round_winner.name} won!" : "It's a tie!"
   end
 
   def display_welcome_message
